@@ -1,0 +1,15 @@
+# Archivo de variables de entorno (SECRETOS)
+.env
+
+# Entorno virtual
+.venv/
+venv/
+env/
+
+# Base de datos local
+*.db
+
+# Archivos de sistema y logs
+__pycache__/
+*.log
+.DS_Store
