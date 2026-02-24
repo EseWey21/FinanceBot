@@ -1,11 +1,12 @@
 import logging
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 from config import TOKEN, USER_ID
-from database import init_db, registrar_movimiento, obtener_resumen
+# Importamos las funciones necesarias de database
+from database import init_db, registrar_movimiento, obtener_resumen, registrar_ingreso_db, liquidar_deuda_db
 
-# Configuración de logs para ver errores en la terminal
+# Configuración de logs
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # --- DECORADOR DE SEGURIDAD ---
@@ -22,78 +23,73 @@ def solo_sajit(func):
 @solo_sajit
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 ¡Hola Sajit! Tu gestor financiero está listo.\n\n"
-        "Comandos básicos:\n"
+        "👋 ¡Hola Sajit! Tu panel financiero está listo.\n\n"
+        "Comandos:\n"
         "💰 /ingreso [monto] [detalle]\n"
-        "💸 /gasto [monto] [detalle]\n"
-        "💳 /tc [monto] [detalle] (Gasto con tarjeta)\n"
-        "📈 /balance (Ver tus cuentas)\n"
-        "🚗 /metas (Rumbo al Nissan March)"
+        "💸 /gasto [monto] [cuenta] [detalle]\n"
+        "_(Cuenta: 'efectivo' o nombre de tu tarjeta/persona)_\n"
+        "💳 /pagar [monto] [cuenta]\n"
+        "📈 /saldo (Estado actual)"
     )
 
 @solo_sajit
 async def ingreso(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         monto = float(context.args[0])
-        detalle = " ".join(context.args[1:]) if len(context.args) > 1 else "Ingreso general"
-        
-        registrar_movimiento(monto, 'INGRESO', 'Efectivo', 'Nomina', detalle)
-        await update.message.reply_text(f"✅ Recibido: ${monto:,.2f} en Efectivo.")
-    except (IndexError, ValueError):
-        await update.message.reply_text("❌ Uso correcto: /ingreso 6450 Nomina IBM")
+        detalle = " ".join(context.args[1:]) if len(context.args) > 1 else "Ingreso"
+        registrar_ingreso_db(monto, detalle)
+        await update.message.reply_text(f"✅ Recibido: ${monto:,.2f} en tu cuenta de rendimientos.")
+    except:
+        await update.message.reply_text("❌ Uso: /ingreso 6450 Quincena")
 
 @solo_sajit
 async def gasto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         monto = float(context.args[0])
-        detalle = " ".join(context.args[1:]) if len(context.args) > 1 else "Gasto general"
-        
-        registrar_movimiento(monto, 'GASTO', 'Efectivo', 'Varios', detalle)
-        await update.message.reply_text(f"💸 Registrado: -${monto:,.2f} de tu Efectivo.")
-    except (IndexError, ValueError):
-        await update.message.reply_text("❌ Uso correcto: /gasto 150 Comida")
+        cuenta = context.args[1]
+        detalle = " ".join(context.args[2:]) if len(context.args) > 2 else "Gasto"
+        registrar_movimiento(monto, cuenta, "Varios", detalle)
+        await update.message.reply_text(f"📝 Registrado: ${monto:,.2f} en {cuenta.capitalize()}.")
+    except:
+        await update.message.reply_text("❌ Uso: /gasto [monto] [efectivo/tarjeta] [detalle]")
 
 @solo_sajit
-async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def pagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        monto = float(context.args[0])
+        cuenta = context.args[1]
+        liquidar_deuda_db(monto, cuenta)
+        await update.message.reply_text(f"✅ Pagado: ${monto:,.2f} a {cuenta.capitalize()}. Se descontó de tu efectivo.")
+    except:
+        await update.message.reply_text("❌ Uso: /pagar [monto] [tarjeta/persona]")
+
+@solo_sajit
+async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     saldos = obtener_resumen()
+    efectivo = saldos.get('Efectivo', 0)
     
-    mensaje = "📊 **RESUMEN DE CUENTAS**\n\n"
-    total_disponible = 0
+    mensaje = "🏦 **ESTADO FINANCIERO**\n"
+    mensaje += f"💰 **Dinero Disponible:** ${efectivo:,.2f}\n"
+    mensaje += "_(Ganando intereses en tu cuenta principal)_\n\n"
+    
+    mensaje += "📝 **CUENTAS POR PAGAR (Deudas):**\n"
+    deuda_total = 0
+    hay_deudas = False
     for cuenta, monto in saldos.items():
-        # La tarjeta la mostramos aparte para no sumarla como "dinero que tienes"
-        if cuenta == 'TC':
-            mensaje += f"💳 Deuda Tarjeta: ${abs(monto):,.2f}\n"
-        else:
-            mensaje += f"🔹 {cuenta}: ${monto:,.2f}\n"
-            total_disponible += monto
+        # Mostramos solo las cuentas que deben dinero (negativas)
+        if cuenta != 'Efectivo' and monto < 0:
+            mensaje += f"🔸 {cuenta}: ${abs(monto):,.2f}\n"
+            deuda_total += abs(monto)
+            hay_deudas = True
             
-    mensaje += f"\n💰 **Total Neto:** ${total_disponible + saldos.get('TC', 0):,.2f}"
-    await update.message.reply_text(mensaje, parse_mode='Markdown')
-
-@solo_sajit
-async def metas(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    saldos = obtener_resumen()
-    # Sumamos lo que tienes en Revolut y Nu
-    ahorro_actual = saldos.get('Revolut', 0) + saldos.get('Nu', 0)
-    meta_march = 90000
-    porcentaje = (ahorro_actual / meta_march) * 100
-    faltante = meta_march - ahorro_actual
-    
-    progreso = "▓" * int(porcentaje // 10) + "░" * (10 - int(porcentaje // 10))
-    
-    mensaje = (
-        f"🚗 **META: NISSAN MARCH**\n"
-        f"Progreso: {progreso} {porcentaje:.1f}%\n\n"
-        f"💰 Llevas: ${ahorro_actual:,.2f}\n"
-        f"🏁 Faltan: ${max(0, faltante):,.2f}\n"
-    )
-    
-    if ahorro_actual >= meta_march:
-        mensaje += "\n🥳 ¡LO LOGRASTE! Ya puedes ir por el carro."
+    if not hay_deudas:
+        mensaje += "✅ Sin deudas pendientes.\n"
     else:
-        mensaje += "\n💡 ¡Cada peso cuenta, sigue así!"
+        mensaje += f"**Total Deuda:** ${deuda_total:,.2f}\n"
         
-    await update.message.reply_text(mensaje)
+    ahorro_neto = efectivo - deuda_total
+    mensaje += f"\n✨ **Ahorro Neto Real:** ${ahorro_neto:,.2f}"
+    await update.message.reply_text(mensaje, parse_mode='Markdown')
 
 # --- EJECUCIÓN ---
 
@@ -104,12 +100,12 @@ if __name__ == '__main__':
     # Construimos la aplicación
     app = ApplicationBuilder().token(TOKEN).build()
     
-    # Agregamos los manejadores
+    # Agregamos los manejadores (Aquí corregí los nombres)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("ingreso", ingreso))
     app.add_handler(CommandHandler("gasto", gasto))
-    app.add_handler(CommandHandler("balance", balance))
-    app.add_handler(CommandHandler("metas", metas))
+    app.add_handler(CommandHandler("pagar", pagar))
+    app.add_handler(CommandHandler("saldo", saldo))
     
     print("🚀 Bot financiero de Sajit iniciado...")
     app.run_polling()
