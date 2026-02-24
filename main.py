@@ -4,8 +4,10 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 from config import TOKEN, USER_ID
 # Importamos las funciones necesarias de database
-from database import init_db, registrar_movimiento, obtener_resumen, registrar_ingreso_db, liquidar_deuda_db
-
+from database import (init_db, registrar_movimiento, obtener_resumen, 
+                      registrar_ingreso_db, liquidar_deuda_db, 
+                      registrar_pago_recibido_db, registrar_cuenta_por_cobrar,
+                      registrar_deuda_pasivo)
 # Configuración de logs
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
@@ -23,20 +25,24 @@ def solo_sajit(func):
 @solo_sajit
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 ¡Hola Sajit!\n\n"
-        "Comandos actualizados:\n"
-        "💰 /ingreso [monto] [detalle] - Dinero que entra.\n"
-        "💸 /gasto [monto] [detalle] - Gasto rápido (resta de efectivo).\n"
-        "💳 /deuda [monto] [nombre] [detalle] - Lo que debes a tarjetas/personas.\n"
-        "✅ /pagar [monto] [nombre] - Liquidar deudas con tu efectivo.\n"
-        "---- Atajos de transporte listos:\n\n"
-        "🚌 /escuela ($22)\n"
-        "🚇 /metro ($5)\n"
-        "🚌 /camion ($8.5)\n"
-        "🚌 /rtp ($2)\n"
-        "🚐 /directo ($20)\n\n"
-        "Usa /saldo para ver tu disponible."
-        "📈 /saldo - Tu balance actual."
+        "👋 ¡Hola Sajit! Tu control financiero total está listo:\n\n"
+        "💰 **GESTIÓN DE DINERO**\n"
+        "• /ingreso [monto] [detalle] - Dinero que entra a tu cuenta.\n"
+        "• /gasto [monto] [detalle] - Gasto rápido (resta de tu efectivo).\n"
+        "• /saldo - Tu balance real, deudas y préstamos.\n\n"
+        
+        "💳 **CUENTAS POR PAGAR (Tus deudas)**\n"
+        "• /deuda [monto] [nombre] [detalle] - Lo que debes a tarjetas o personas.\n"
+        "• /pagar [monto] [nombre] - Liquidar tus deudas con tu efectivo.\n\n"
+        
+        "🤝 **CUENTAS POR COBRAR (Te deben)**\n"
+        "• /debe [monto] [persona] [detalle] - Dinero que prestaste a alguien.\n"
+        "• /pago [monto] [persona] - Cuando te devuelven dinero (suma a tu efectivo).\n\n"
+        
+        "🚌 **ATAJOS DE TRANSPORTE**\n"
+        "• /escuela ($22) | /metro ($5) | /camion ($8.5)\n"
+        "• /rtp ($2) | /directo ($20)",
+        parse_mode='Markdown'
     )
 
 @solo_sajit
@@ -60,7 +66,7 @@ async def gasto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         registrar_movimiento(monto, "Efectivo", "Varios", detalle)
         await update.message.reply_text(f"💸 Restados ${monto:,.2f} de tu efectivo por: {detalle}.")
     except:
-        await update.message.reply_text("❌ Uso: /gasto [monto] [efectivo/tarjeta] [detalle]")
+        await update.message.reply_text("❌ Uso: /gasto [monto] [detalle]")
 
 @solo_sajit
 async def pagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -78,26 +84,29 @@ async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     efectivo = saldos.get('Efectivo', 0)
     
     mensaje = "🏦 **ESTADO FINANCIERO**\n"
-    mensaje += f"💰 **Dinero Disponible:** ${efectivo:,.2f}\n"
-    mensaje += "_(Ganando intereses en tu cuenta principal)_\n\n"
+    mensaje += f"💰 **Dinero Disponible:** ${efectivo:,.2f}\n\n"
     
-    mensaje += "📝 **CUENTAS POR PAGAR (Deudas):**\n"
+    cuentas_pagar = ""
+    cuentas_cobrar = ""
     deuda_total = 0
-    hay_deudas = False
+    cobrar_total = 0
+
     for cuenta, monto in saldos.items():
-        # Mostramos solo las cuentas que deben dinero (negativas)
-        if cuenta != 'Efectivo' and monto < 0:
-            mensaje += f"🔸 {cuenta}: ${abs(monto):,.2f}\n"
+        if cuenta == 'Efectivo' or monto == 0: continue
+        if monto < 0:
+            cuentas_pagar += f"🔸 {cuenta}: ${abs(monto):,.2f}\n"
             deuda_total += abs(monto)
-            hay_deudas = True
-            
-    if not hay_deudas:
-        mensaje += "✅ Sin deudas pendientes.\n"
-    else:
-        mensaje += f"**Total Deuda:** ${deuda_total:,.2f}\n"
+        else:
+            cuentas_cobrar += f"🔹 {cuenta}: ${monto:,.2f}\n"
+            cobrar_total += monto
+
+    if cuentas_cobrar:
+        mensaje += "📈 **CUENTAS POR COBRAR:**\n" + cuentas_cobrar + f"**Total a favor:** ${cobrar_total:,.2f}\n\n"
+    if cuentas_pagar:
+        mensaje += "📉 **CUENTAS POR PAGAR:**\n" + cuentas_pagar + f"**Total deuda:** ${deuda_total:,.2f}\n\n"
         
-    ahorro_neto = efectivo - deuda_total
-    mensaje += f"\n✨ **Ahorro Neto Real:** ${ahorro_neto:,.2f}"
+    ahorro_neto = efectivo - deuda_total + cobrar_total
+    mensaje += f"✨ **Ahorro Neto Real:** ${ahorro_neto:,.2f}"
     await update.message.reply_text(mensaje, parse_mode='Markdown')
 
 @solo_sajit
@@ -115,8 +124,7 @@ async def deuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         monto = float(context.args[0])
         nombre = context.args[1] # Ej: Nu, BBVA o Juan
         detalle = " ".join(context.args[2:]) if len(context.args) > 2 else "Deuda"
-        
-        from database import registrar_deuda_pasivo
+
         registrar_deuda_pasivo(monto, nombre, detalle)
         await update.message.reply_text(f"💳 Anotada deuda de ${monto:,.2f} en {nombre.capitalize()}.")
     except:
@@ -146,6 +154,27 @@ async def directo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     registrar_movimiento(monto, "Efectivo", "Transporte", "Directo / Micro")
     await update.message.reply_text(f"🚐 Directo registrado: ${monto:,.2f} restados.")
 
+@solo_sajit
+async def debe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        monto = float(context.args[0])
+        persona = context.args[1]
+        detalle = " ".join(context.args[2:]) if len(context.args) > 2 else "Préstamo"
+        registrar_cuenta_por_cobrar(monto, persona, detalle)
+        await update.message.reply_text(f"💰 Registro: {persona.capitalize()} ahora te debe ${monto:,.2f}.")
+    except:
+        await update.message.reply_text("❌ Uso: /debe [monto] [persona] [detalle]")
+
+@solo_sajit
+async def pago(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        monto = float(context.args[0])
+        persona = context.args[1]
+        registrar_pago_recibido_db(monto, persona)
+        await update.message.reply_text(f"✅ ¡Dinero recibido! Se sumaron ${monto:,.2f} a tu disponible.")
+    except:
+        await update.message.reply_text("❌ Uso: /pago [monto] [persona]")
+
 # --- EJECUCIÓN ---
 
 if __name__ == '__main__':
@@ -167,6 +196,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("camion", camion))
     app.add_handler(CommandHandler("rtp", rtp))
     app.add_handler(CommandHandler("directo", directo))
-    
+    app.add_handler(CommandHandler("debe", debe))
+    app.add_handler(CommandHandler("pago", pago))
     print("🚀 Bot financiero de Sajit iniciado...")
     app.run_polling()

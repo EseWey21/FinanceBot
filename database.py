@@ -96,3 +96,29 @@ def registrar_deuda_pasivo(monto, nombre_cuenta, desc):
     
     conn.commit()
     conn.close()
+
+def registrar_pago_recibido_db(monto, cuenta_persona):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cuenta = cuenta_persona.strip().capitalize()
+    # 1. Sumamos el dinero a tu Efectivo disponible
+    cursor.execute('UPDATE saldos SET monto = monto + ? WHERE cuenta = "Efectivo"', (monto,))
+    # 2. Restamos de la cuenta de la persona (acercándola a cero)
+    cursor.execute('UPDATE saldos SET monto = monto - ? WHERE cuenta = ?', (monto, cuenta))
+    # 3. Registramos el historial
+    cursor.execute('INSERT INTO movimientos (monto, tipo, cuenta, descripcion) VALUES (?, "PAGO_RECIBIDO", "Efectivo", ?)', (monto, f"Pago recibido de {cuenta}"))
+    conn.commit()
+    conn.close()
+
+def registrar_cuenta_por_cobrar(monto, nombre_persona, desc):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cuenta = nombre_persona.strip().capitalize()
+    # Asegura que la cuenta de la persona existe
+    cursor.execute('INSERT OR IGNORE INTO saldos (cuenta, monto) VALUES (?, 0)', (cuenta,))
+    # Aumenta el saldo a tu favor (saldo positivo)
+    cursor.execute('UPDATE saldos SET monto = monto + ? WHERE cuenta = ?', (monto, cuenta))
+    # Registramos el movimiento
+    cursor.execute('INSERT INTO movimientos (monto, tipo, cuenta, categoria, descripcion) VALUES (?, "PRESTAMO_OTORGADO", ?, "Por Cobrar", ?)', (monto, cuenta, desc))
+    conn.commit()
+    conn.close()
