@@ -75,3 +75,24 @@ def obtener_resumen():
     resumen = cursor.fetchall()
     conn.close()
     return dict(resumen)
+
+def registrar_deuda_pasivo(monto, nombre_cuenta, desc):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cuenta = nombre_cuenta.strip().capitalize()
+    
+    # Asegura que la cuenta (ej. Nu o Juan) existe
+    cursor.execute('INSERT OR IGNORE INTO saldos (cuenta, monto) VALUES (?, 0)', (cuenta,))
+    
+    # Aumenta la deuda (el saldo se vuelve más negativo)
+    # No tocamos la cuenta "Efectivo"
+    cursor.execute('UPDATE saldos SET monto = monto - ? WHERE cuenta = ?', (monto, cuenta))
+    
+    # Registramos el movimiento como GASTO_CREDITO
+    cursor.execute('''
+        INSERT INTO movimientos (monto, tipo, cuenta, categoria, descripcion) 
+        VALUES (?, "GASTO_CREDITO", ?, "Deuda", ?)
+    ''', (monto, cuenta, desc))
+    
+    conn.commit()
+    conn.close()

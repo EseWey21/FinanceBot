@@ -23,15 +23,20 @@ def solo_sajit(func):
 @solo_sajit
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 ¡Hola Sajit! Tu panel financiero está listo.\n\n"
-        "Comandos:\n"
-        "💰 /ingreso [monto] [detalle]\n"
-        "💸 /gasto [monto] [cuenta] [detalle]\n"
-        "_(Cuenta: 'efectivo' o nombre de tu tarjeta/persona)_\n"
-        "💳 /pagar [monto] [cuenta]\n"
-        "Comandos rápidos:\n"
-        "🚌 /escuela - Registra tus $22 de transporte diario.\n"
-        "📈 /saldo (Estado actual)"
+        "👋 ¡Hola Sajit!\n\n"
+        "Comandos actualizados:\n"
+        "💰 /ingreso [monto] [detalle] - Dinero que entra.\n"
+        "💸 /gasto [monto] [detalle] - Gasto rápido (resta de efectivo).\n"
+        "💳 /deuda [monto] [nombre] [detalle] - Lo que debes a tarjetas/personas.\n"
+        "✅ /pagar [monto] [nombre] - Liquidar deudas con tu efectivo.\n"
+        "---- Atajos de transporte listos:\n\n"
+        "🚌 /escuela ($22)\n"
+        "🚇 /metro ($5)\n"
+        "🚌 /camion ($8.5)\n"
+        "🚌 /rtp ($2)\n"
+        "🚐 /directo ($20)\n\n"
+        "Usa /saldo para ver tu disponible."
+        "📈 /saldo - Tu balance actual."
     )
 
 @solo_sajit
@@ -48,10 +53,12 @@ async def ingreso(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def gasto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         monto = float(context.args[0])
-        cuenta = context.args[1]
-        detalle = " ".join(context.args[2:]) if len(context.args) > 2 else "Gasto"
-        registrar_movimiento(monto, cuenta, "Varios", detalle)
-        await update.message.reply_text(f"📝 Registrado: ${monto:,.2f} en {cuenta.capitalize()}.")
+        # Ahora el detalle es todo lo que sigue después del monto
+        detalle = " ".join(context.args[1:]) if len(context.args) > 1 else "Gasto"
+        
+        # Forzamos que siempre sea a "Efectivo"
+        registrar_movimiento(monto, "Efectivo", "Varios", detalle)
+        await update.message.reply_text(f"💸 Restados ${monto:,.2f} de tu efectivo por: {detalle}.")
     except:
         await update.message.reply_text("❌ Uso: /gasto [monto] [efectivo/tarjeta] [detalle]")
 
@@ -102,6 +109,43 @@ async def escuela(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(f"🚌 Gasto de la escuela registrado: ${monto_fijo:,.2f} restados de tu efectivo.")
 
+@solo_sajit
+async def deuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        monto = float(context.args[0])
+        nombre = context.args[1] # Ej: Nu, BBVA o Juan
+        detalle = " ".join(context.args[2:]) if len(context.args) > 2 else "Deuda"
+        
+        from database import registrar_deuda_pasivo
+        registrar_deuda_pasivo(monto, nombre, detalle)
+        await update.message.reply_text(f"💳 Anotada deuda de ${monto:,.2f} en {nombre.capitalize()}.")
+    except:
+        await update.message.reply_text("❌ Uso: /deuda 500 Nu super")
+
+@solo_sajit
+async def metro(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    monto = 5.0
+    registrar_movimiento(monto, "Efectivo", "Transporte", "Metro")
+    await update.message.reply_text(f"🚇 Metro registrado: ${monto:,.2f} restados.")
+
+@solo_sajit
+async def camion(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    monto = 8.5
+    registrar_movimiento(monto, "Efectivo", "Transporte", "Camión")
+    await update.message.reply_text(f"🚌 Camión registrado: ${monto:,.2f} restados.")
+
+@solo_sajit
+async def rtp(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    monto = 2.0
+    registrar_movimiento(monto, "Efectivo", "Transporte", "RTP")
+    await update.message.reply_text(f"🚌 RTP registrado: ${monto:,.2f} restados.")
+
+@solo_sajit
+async def directo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    monto = 20.0
+    registrar_movimiento(monto, "Efectivo", "Transporte", "Directo / Micro")
+    await update.message.reply_text(f"🚐 Directo registrado: ${monto:,.2f} restados.")
+
 # --- EJECUCIÓN ---
 
 if __name__ == '__main__':
@@ -118,6 +162,11 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("pagar", pagar))
     app.add_handler(CommandHandler("saldo", saldo))
     app.add_handler(CommandHandler("escuela", escuela))
+    app.add_handler(CommandHandler("deuda", deuda))
+    app.add_handler(CommandHandler("metro", metro))
+    app.add_handler(CommandHandler("camion", camion))
+    app.add_handler(CommandHandler("rtp", rtp))
+    app.add_handler(CommandHandler("directo", directo))
     
     print("🚀 Bot financiero de Sajit iniciado...")
     app.run_polling()
