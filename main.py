@@ -29,6 +29,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💸 /gasto [monto] [cuenta] [detalle]\n"
         "_(Cuenta: 'efectivo' o nombre de tu tarjeta/persona)_\n"
         "💳 /pagar [monto] [cuenta]\n"
+        "Comandos rápidos:\n"
+        "🚌 /escuela - Registra tus $22 de transporte diario.\n"
         "📈 /saldo (Estado actual)"
     )
 
@@ -91,6 +93,15 @@ async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje += f"\n✨ **Ahorro Neto Real:** ${ahorro_neto:,.2f}"
     await update.message.reply_text(mensaje, parse_mode='Markdown')
 
+@solo_sajit
+async def escuela(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Definimos el monto fijo de tu gasto diario
+    monto_fijo = 22.0
+    # Usamos la función que ya tenemos en database.py
+    registrar_movimiento(monto_fijo, "efectivo", "Transporte", "Gasto diario UPIITA")
+    
+    await update.message.reply_text(f"🚌 Gasto de la escuela registrado: ${monto_fijo:,.2f} restados de tu efectivo.")
+
 # --- EJECUCIÓN ---
 
 if __name__ == '__main__':
@@ -106,6 +117,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("gasto", gasto))
     app.add_handler(CommandHandler("pagar", pagar))
     app.add_handler(CommandHandler("saldo", saldo))
+    app.add_handler(CommandHandler("escuela", escuela))
     
     print("🚀 Bot financiero de Sajit iniciado...")
     app.run_polling()
